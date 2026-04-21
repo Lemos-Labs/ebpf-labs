@@ -5,8 +5,8 @@
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-SEC("ksyscall/execve")
-int BPF_KSYSCALL(hello, const char *pathname)
+SEC("tracepoint/syscalls/sys_enter_execve")
+int hello(void *ctx)
 {
     bpf_printk("Hello World!");
     return 0;

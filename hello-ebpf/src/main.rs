@@ -5,7 +5,7 @@ use std::mem::MaybeUninit;
 use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
 
 mod hello {
-    include!(concat!(env!("OUT_DIR"), "/hello-skel.rs"));
+    include!(concat!(env!("OUT_DIR"), "./hello.skel.rs"));
 }
 
 use hello::HelloSkelBuilder;
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let pipe = File::open("sys/kernel/debug/tracing/trace_pipe")?;
     let reader = BufReader::new(pipe);
     for line in reader.lines() {
-        println!("{}", line);
+        println!("{}", line?);
     }
 
     Ok(())
