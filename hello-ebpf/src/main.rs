@@ -39,7 +39,8 @@ fn main() -> anyhow::Result<()> {
     println!("Tracing execve... Hit Ctrl-C to stop.");
 
     // Stream the global trace pipe
-    let pipe = File::open("sys/kernel/debug/tracing/trace_pipe")?;
+    let pipe = File::open("sys/kernel/tracing/trace_pipe")
+        .or_else(|_| File::open("sys/kernel/debug/tracing/trace_pipe"))?;
     let reader = BufReader::new(pipe);
     for line in reader.lines() {
         println!("{}", line?);
