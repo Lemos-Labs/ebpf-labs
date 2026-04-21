@@ -5,7 +5,7 @@ use std::mem::MaybeUninit;
 use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
 
 mod hello {
-    include!(concat!(env!("OUT_DIR"), "./hello.skel.rs"));
+    include!(concat!(env!("OUT_DIR"), "/hello.skel.rs"));
 }
 
 use hello::HelloSkelBuilder;
