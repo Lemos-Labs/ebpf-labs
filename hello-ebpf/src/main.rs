@@ -1,50 +1,61 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::mem::MaybeUninit;
-
+use anyhow::Result;
+use libbpf_rs::PerfBufferBuilder;
 use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
+use plain::Plain;
+use std::mem::MaybeUninit;
+use std::time::Duration;
 
 mod hello {
     include!(concat!(env!("OUT_DIR"), "/hello.skel.rs"));
 }
+use hello::*;
 
-use hello::HelloSkelBuilder;
-
-fn bump_memlock_rlimit() -> anyhow::Result<()> {
-    // Older kernels are charged against RLIMIT_MEMLOCK with BPF allocations.
-    let rlimit = libc::rlimit {
-        rlim_cur: libc::RLIM_INFINITY,
-        rlim_max: libc::RLIM_INFINITY,
-    };
-    if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) } != 0 {
-        anyhow::bail!("failed to raise RLIMIT_MEMLOCK");
-    }
-    Ok(())
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+struct DataT {
+    pid: i32,
+    uid: i32,
+    command: [u8; 16],
+    message: [u8; 12],
 }
 
-fn main() -> anyhow::Result<()> {
-    bump_memlock_rlimit();
+unsafe impl Plain for DataT {}
 
-    // Build the skeleton and open the BPF project
-    let mut open_object = MaybeUninit::uninit();
+fn handle_event(_cpu: i32, bytes: &[u8]) {
+    let mut event = DataT::default();
+    plain::copy_from_bytes(&mut event, bytes).expect("data buffer too short");
+
+    let command = std::str::from_utf8(&event.command)
+        .unwrap_or("?")
+        .trim_end_matches('\0');
+    let message = std::str::from_utf8(&event.message)
+        .unwrap_or("?")
+        .trim_end_matches('\0');
+
+    println!("{} {} {} {}", event.pid, event.uid, command, message);
+}
+
+fn handle_lost(cpu: i32, count: u64) {
+    eprintln!("lost {count} events on cpu {cpu}");
+}
+
+fn main() -> Result<()> {
     let skel_builder = HelloSkelBuilder::default();
+
+    // Storage for the OpenObject — lives on the stack for the rest of main().
+    let mut open_object = MaybeUninit::uninit();
+
     let open_skel = skel_builder.open(&mut open_object)?;
-
-    // Create maps, verifies and loads programs in kernel
     let mut skel = open_skel.load()?;
+    skel.attach()?;
 
-    // Attach all programs according to its SEC() annotation
-    let _links = skel.attach()?;
+    let perf = PerfBufferBuilder::new(&skel.maps.output)
+        .sample_cb(handle_event)
+        .lost_cb(handle_lost)
+        .build()?;
 
-    println!("Tracing execve... Hit Ctrl-C to stop.");
-
-    // Stream the global trace pipe
-    let pipe = File::open("sys/kernel/tracing/trace_pipe")
-        .or_else(|_| File::open("sys/kernel/debug/tracing/trace_pipe"))?;
-    let reader = BufReader::new(pipe);
-    for line in reader.lines() {
-        println!("{}", line?);
+    println!("Tracing execve... Ctrl-C to stop.");
+    loop {
+        perf.poll(Duration::from_millis(100))?;
     }
-
-    Ok(())
 }
